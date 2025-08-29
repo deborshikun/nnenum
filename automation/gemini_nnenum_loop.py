@@ -75,7 +75,7 @@ DEP_RE = re.compile(r"^\s*X_(?P<target>\d+)\s+belongs\s+to\s+(?P<cons>.+?)\s+whe
 INTERVAL_RE = re.compile(r"\[(?P<a>[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)[\s,]+(?P<b>[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)\]")
 COND_RE = re.compile(r"\s*X_(?P<var>\d+)\s+belongs\s+to\s+(?P<intervals>.+?)\s*$", re.IGNORECASE)
 
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "AIzaSyAK-MJhlXpr1U_lBsnryLjsTwkuXwaAk-8")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 
 
 def parse_intervals(text: str) -> List[Interval]:
