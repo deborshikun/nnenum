@@ -17,7 +17,7 @@ import sys
 import time
 from pathlib import Path
 from typing import List, Tuple, Optional, Dict
-import google.generativeai as genai  # type: ignore
+import google.generativeai as genai 
 
 
 # DS for interval and variable bounds
