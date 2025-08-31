@@ -33,7 +33,15 @@ VarBounds = Dict[int, Interval]
 # ---------------------- Parsing Utilities ----------------------
 BOUND_RE = re.compile(r"\(\s*([<>]=)\s+X_(\d+)\s+([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)\s*\)")
 INDEP_RE = re.compile(r"^\s*X_(?P<var>\d+)\s+belongs\s+to\s+(?P<intervals>.+?)\s*$", re.IGNORECASE)
+<<<<<<< HEAD
 INTERVAL_RE = re.compile(r"\[\s*(?P<a>[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)\s*,\s*(?P<b>[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)\s*\]")
+=======
+DEP_RE = re.compile(r"^\s*X_(?P<target>\d+)\s+belongs\s+to\s+(?P<cons>.+?)\s+when\s+(?P<ants>.+?)\s*$", re.IGNORECASE)
+INTERVAL_RE = re.compile(r"\[(?P<a>[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)[\s,]+(?P<b>[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)\]")
+COND_RE = re.compile(r"\s*X_(?P<var>\d+)\s+belongs\s+to\s+(?P<intervals>.+?)\s*$", re.IGNORECASE)
+
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+>>>>>>> cd81de69379762199bbf3af203da4488f59c20d4
 
 
 def parse_base_vnnlib_bounds(vnnlib_text: str) -> VarBounds:
