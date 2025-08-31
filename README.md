@@ -120,6 +120,30 @@ $env:OPENBLAS_NUM_THREADS="1"; $env:OMP_NUM_THREADS="1"; $env:MKL_NUM_THREADS="1
 
 The tool prints or writes one of: `holds` (safe), `violated` (unsafe), or `timeout`.
 
+## 5) For automation on the LLM explaination refinement
+
+Set venv
+
+```
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process
+venv\Scripts\activate
+```
+
+Set env var to setup API key
+```
+$env:GEMINI_API_KEY="<your api key>"
+```
+
+Go to automation directory
+```
+cd automation
+```
+
+Run the automation gemini script (Change the directories):
+```
+python gemini_nnenum_loop.py --onnx "C:\Users\Deborshi Chakrabarti\Desktop\nnenum\nnenum\nnenum\examples\acasxu\data\ACASXU_run2a_2_9_batch_2000.onnx" --base-vnnlib "C:\Users\Deborshi Chakrabarti\Desktop\nnenum\nnenum\nnenum\examples\acasxu\data\prop_8.vnnlib" --explanation "C:\Users\Deborshi Chakrabarti\Desktop\nnenum\nnenum\nnenum\Original Bounds.txt" --adv-inputs "C:\Users\Deborshi Chakrabarti\Desktop\nnenum\nnenum\nnenum\adv_total.txt" --timeout 60 --iterations 10 --output-dir "C:\Users\Deborshi Chakrabarti\Desktop\nnenum\nnenum\nnenum\automation"
+```
+
 ## Notes on presets
 - `auto` chooses settings based on input dimension count
 - `control` favors smaller control-style networks
