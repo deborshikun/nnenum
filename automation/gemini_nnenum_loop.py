@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Automation loop to:
  1) For each rule in an explanation file, calculate the "gaps" between the rule's bounds
@@ -18,19 +17,14 @@ import sys
 import time
 from pathlib import Path
 from typing import List, Tuple, Optional, Dict
+import google.generativeai as genai  # type: ignore
 
 
-# Optional Gemini import; error handled at call time
-try:
-    import google.generativeai as genai  # type: ignore
-except Exception:
-    genai = None  # type: ignore
-
-# ---------------------- Data Structures ----------------------
+# DS for interval and variable bounds
 Interval = Tuple[float, float]
 VarBounds = Dict[int, Interval]
 
-# ---------------------- Parsing Utilities ----------------------
+# Parsing Utilities
 BOUND_RE = re.compile(r"\(\s*([<>]=)\s+X_(\d+)\s+([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)\s*\)")
 INDEP_RE = re.compile(r"^\s*X_(?P<var>\d+)\s+belongs\s+to\s+(?P<intervals>.+?)\s*$", re.IGNORECASE)
 INTERVAL_RE = re.compile(r"\[\s*(?P<a>[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)\s*,\s*(?P<b>[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)\s*\]")
@@ -96,7 +90,7 @@ def parse_vector_from_file_content(text: str) -> Optional[List[float]]:
     except (ValueError, IndexError):
         return None
 
-# ---------------------- Logic for Bound Difference ----------------------
+# Bound difference Logic
 
 def calculate_bound_difference(original_bound: Interval, llm_intervals: List[Interval]) -> List[Interval]:
     """Calculates the gaps: parts of original_bound NOT covered by llm_intervals."""
@@ -125,10 +119,10 @@ def vnnlib_and_inside(var_index: int, interval: Interval) -> str:
     a, b = interval
     return f"(and (>= X_{var_index} {a}) (<= X_{var_index} {b}))"
 
-# ---------------------- nnenum execution ----------------------
+
 def run_nnenum(repo_root: Path, onnx_path: Path, vnnlib_path: Path, timeout: int, outfile: Path) -> str:
     """Run nnenum and return combined stdout+stderr as text."""
-    # --- Windows (PowerShell) Execution ---
+
     ps_cmd = (
         '$env:OPENBLAS_NUM_THREADS="1"; '
         '$env:OMP_NUM_THREADS="1"; '
@@ -143,7 +137,6 @@ def run_nnenum(repo_root: Path, onnx_path: Path, vnnlib_path: Path, timeout: int
     )
     return (res.stdout or '') + '\n' + (res.stderr or '')
 
-# ---------------------- Gemini call for Refinement ----------------------
 
 def ensure_gemini(api_key: Optional[str]):
     if genai is None:
@@ -186,7 +179,6 @@ def call_gemini_to_refine_bounds(
     except Exception:
         raise RuntimeError("Gemini response had no text content")
 
-# ---------------------- Main loop ----------------------
 
 def main():
     parser = argparse.ArgumentParser(description="Automate LLM-vs-nnenum loop using gap analysis.")
@@ -201,7 +193,6 @@ def main():
     parser.add_argument('--output-dir', default='automation_output', help='Directory for generated files.')
     args = parser.parse_args()
 
-    # --- File setup ---
     repo_root = Path(__file__).resolve().parents[1]
     onnx_path = Path(args.onnx)
     out_dir = Path(args.output_dir).resolve()
@@ -209,17 +200,16 @@ def main():
     
     base_vnnlib_text = Path(args.base_vnnlib).read_text(encoding='utf-8')
     original_input_bounds = parse_base_vnnlib_bounds(base_vnnlib_text)
-    print("--- Parsed Original Input Bounds ---")
+    print("Parsed Original Input Bounds")
     for var, (vmin, vmax) in sorted(original_input_bounds.items()):
         print(f"  X_{var}: [{vmin}, {vmax}]")
     print("-" * 34)
     
-    # --- Main Loop ---
     current_explanation_path = Path(args.explanation)
     all_found_cex: List[List[float]] = []
 
     for iteration in range(args.iterations):
-        print(f"\n--- Starting Iteration {iteration} ---")
+        print(f"\n Starting Iteration {iteration} ")
         if not current_explanation_path.exists():
             print(f"ERROR: Explanation file not found: {current_explanation_path}. Stopping.")
             break
@@ -247,7 +237,7 @@ def main():
             tmp_vnnlib_path = out_dir / f"iter{iteration}_rule{i+1}_gaps.vnnlib"
             with tmp_vnnlib_path.open('w', encoding='utf-8') as f:
                 f.write(base_vnnlib_text)
-                f.write(f"\n\n; --- Gap analysis for rule: {line.strip()} ---\n")
+                f.write(f"\n\n; Gap analysis for rule: {line.strip()} \n")
                 f.write(gap_assertion + "\n")
             
             print(f"  Testing gaps for rule {i+1}: X_{var_idx} -> {tmp_vnnlib_path.name}")
@@ -256,14 +246,14 @@ def main():
             
             cex_input = parse_vector_from_file_content(output_text)
             if cex_input:
-                # --- NEW: Read output from the .coutput file ---
+                # Read output from the .coutput file
                 coutput_path = outfile_path.with_suffix('.coutput')
                 output_vector = None
                 if coutput_path.exists():
                     output_text_from_file = coutput_path.read_text(encoding='utf-8')
                     output_vector = parse_vector_from_file_content(output_text_from_file)
 
-                # --- NEW: Formatted printing with input and output ---
+                # Format the output vector for printing
                 formatted_input = ", ".join(f"X_{i}={v:.6f}" for i, v in enumerate(cex_input))
                 print(f"    -> CEX FOUND: Input:  {formatted_input}")
                 if output_vector:
@@ -275,15 +265,14 @@ def main():
             time.sleep(1)
 
         if not new_cex_this_iteration:
-            print("\n--- VERIFICATION SUCCESS ---")
+            print("\nSUCCESS")
             print("No counterexamples found in any gaps. The rules are robust.")
             break
             
         all_found_cex.extend(new_cex_this_iteration)
         
-        # --- Refinement Step ---
-        print("\n--- Refinement Step ---")
-        print(f"Found {len(new_cex_this_iteration)} new counterexample(s). Asking Gemini to refine...")
+        print("\nRefinement Step")
+        print(f"Found {len(new_cex_this_iteration)} new counterexamples. Asking Gemini to refine...")
         try:
             base_adv_lines = Path(args.adv_inputs).read_text(encoding='utf-8').splitlines()
             refined_text = call_gemini_to_refine_bounds(

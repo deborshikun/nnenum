@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 A dedicated script to run inference on an ONNX model for a given input vector.
 
@@ -34,7 +33,7 @@ def _infer_target_shape(expected_shape: Sequence, flat_len: int) -> List[int]:
 
     rank = len(norm_shape)
     if rank == 0:
-        # Scalar model input shouldn't happen; fall back to [1, flat_len]
+        # Scalar model input shouldn't happen so fall back to [1, flat_len]
         return [1, flat_len]
 
     # Always force batch dim to 1
@@ -49,8 +48,7 @@ def _infer_target_shape(expected_shape: Sequence, flat_len: int) -> List[int]:
         return [1, flat_len]
 
     if rank == 3:
-        # [N, C, L]  or [N, L, C] (unknown). If one of dims is known, respect it.
-        # If all non-batch dims known and product matches, use expected dims
+        # [N, C, L]  or [N, L, C].
         if all(d is not None for d in norm_shape[1:]):
             prod = math.prod([int(d) for d in norm_shape[1:]])
             if prod == flat_len:
@@ -80,11 +78,10 @@ def _infer_target_shape(expected_shape: Sequence, flat_len: int) -> List[int]:
 
     if rank == 4:
         # Typical image models: [N, C, H, W] or [N, H, W, C]
-        # Try to respect any known dims first.
         dims = list(norm_shape)
         # Replace N with 1
         dims[0] = 1
-        # If all non-batch dims are known and product matches, use dims directly
+
         if all(d is not None for d in dims[1:]):
             prod = 1
             for d in dims[1:]:
@@ -120,7 +117,7 @@ def _infer_target_shape(expected_shape: Sequence, flat_len: int) -> List[int]:
                     else:
                         # Cannot map cleanly
                         raise ValueError(f"Cannot map flat vector of length {flat_len} into expected shape {expected_shape}")
-            # Fill remaining unknowns as 1
+
             for i in idxs:
                 if new_dims[i] is None:
                     new_dims[i] = 1
@@ -144,7 +141,7 @@ def main():
         ort_session = ort.InferenceSession(args.onnx_model)
         input_info = ort_session.get_inputs()[0]
         input_name = input_info.name
-        expected_shape = input_info.shape  # may include None or symbolic dims
+        expected_shape = input_info.shape  
 
         # Parse the input vector string into a list of floats
         str_vals = args.input_vector.strip().replace('[', '').replace(']', '').split(',')
@@ -156,6 +153,7 @@ def main():
 
         outputs = ort_session.run(None, {input_name: input_tensor})
         output_arr = outputs[0]
+        
         # Flatten output to 1D list for printing
         output_vector = np.asarray(output_arr).reshape(-1).tolist()
 

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Automation loop (Gap Analysis Strategy with External Inference):
  1) For each rule in an explanation file, calculate the "gaps" between the rule's bounds
@@ -19,15 +18,9 @@ import sys
 import time
 from pathlib import Path
 from typing import List, Tuple, Optional, Dict
+import google.generativeai as genai
 
-# Note: onnxruntime and numpy are not required in this main script.
 
-try:
-    import google.generativeai as genai
-except ImportError:
-    genai = None
-
-# --- Data Structures & Parsers ---
 Interval = Tuple[float, float]
 VarBounds = Dict[int, Interval]
 BOUND_RE = re.compile(r"\(\s*assert\s*\(\s*(or|and)\s*\(.*?[<>]=?\s*X_(\d+).*?", re.DOTALL)
@@ -39,7 +32,7 @@ def parse_base_vnnlib_bounds(vnnlib_text: str) -> VarBounds:
     """Parses a VNNLIB file to extract the simple input bounds for each X_i variable."""
     bounds: Dict[int, Dict[str, float]] = {}
     
-    # Updated regex to be more robust for single-line or multi-line asserts
+    # Parsing single-line or multi-line asserts
     bound_pattern = re.compile(r"\(\s*([<>]=)\s+X_(\d+)\s+([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)\s*\)")
 
     for match in bound_pattern.finditer(vnnlib_text):
@@ -113,7 +106,6 @@ def parse_first_vector_with_len(text: str, expected_len: Optional[int] = None) -
             return v
     return None
 
-# --- Logic for Bound Difference ---
 def calculate_bound_difference(original_bound: Interval, llm_intervals: List[Interval]) -> List[Interval]:
     orig_min, orig_max = original_bound
     if not llm_intervals:
@@ -140,7 +132,6 @@ def vnnlib_and_inside(var_index: int, interval: Interval) -> str:
     a, b = interval
     return f"(and (>= X_{var_index} {a}) (<= X_{var_index} {b}))"
 
-# --- External Tool Wrappers ---
 def run_nnenum(repo_root: Path, onnx_path: Path, vnnlib_path: Path, timeout: int, outfile: Path) -> str:
     ps_cmd = (
         '$env:OPENBLAS_NUM_THREADS="1"; '
@@ -260,7 +251,6 @@ def call_gemini_to_refine_bounds_batch(
             raise
     raise RuntimeError(f"Gemini response failed after {max_retries} retries: {last_err}")
 
-# --- Main Logic ---
 def main():
     parser = argparse.ArgumentParser(description="Automate LLM-vs-nnenum loop using gap analysis.")
     parser.add_argument('--api-key', default=os.getenv('GEMINI_API_KEY'))
@@ -287,18 +277,17 @@ def main():
     base_vnnlib_text = args.base_vnnlib.read_text(encoding='utf-8')
     original_input_bounds = parse_base_vnnlib_bounds(base_vnnlib_text)
 
-    print("--- Parsed Original Input Bounds ---")
+    print("Parsed Original Input Bounds")
     for var, (vmin, vmax) in sorted(original_input_bounds.items()):
         print(f"  X_{var}: [{vmin}, {vmax}]")
     print("-" * 34)
 
-    # Expected flat input length derived from number of base bounds (typically X_0..X_{n-1})
     expected_input_len = len(original_input_bounds)
     
     current_explanation_path = args.explanation
 
     for iteration in range(args.iterations):
-        print(f"\n--- Starting Iteration {iteration}: Analyzing {current_explanation_path.name} ---")
+        print(f"\n Starting Iteration {iteration}: Analyzing {current_explanation_path.name}")
         if not current_explanation_path.exists():
             sys.exit(f"ERROR: Explanation file not found: {current_explanation_path}.")
         
@@ -330,14 +319,13 @@ def main():
             vnnlib_path = args.output_dir / f"iter{iteration}_rule{i+1}_gaps.vnnlib"
             with vnnlib_path.open('w', encoding='utf-8') as f:
                 f.write(base_vnnlib_text)
-                f.write(f"\n\n; --- Gap analysis for rule: {line.strip()} ---\n")
+                f.write(f"\n\n; Gap analysis for rule: {line.strip()}\n")
                 f.write(gap_assertion + "\n")
             
             print(f"  Testing gaps for rule {i+1} (X_{var_idx}) -> {vnnlib_path.name}")
             result_path = args.output_dir / f"result_iter{iteration}_rule{i+1}.txt"
             output_text = run_nnenum(repo_root, args.onnx, vnnlib_path, args.timeout, result_path)
             
-            # Prefer deterministic files written by nnenum over parsing stdout
             cinput_path = result_path.with_suffix('.cinput')
             coutput_path = result_path.with_suffix('.coutput')
 
@@ -352,7 +340,7 @@ def main():
                 cex_input = parse_first_vector_with_len(output_text, expected_input_len)
 
             if cex_input and len(cex_input) == expected_input_len:
-                print("\n--- FLAW IN EXPLANATION FOUND ---")
+                print("\n FLAW IN EXPLANATION FOUND")
                 counterexample_found_this_iteration = True
 
                 # Try to get outputs from .coutput; fallback to local inference
@@ -389,10 +377,10 @@ def main():
 
                 if not args.batch_refine:
                     if args.skip_llm:
-                        print("\n--- LLM SKIPPED ---")
+                        print("\n LLM SKIPPED ")
                         print("Skipping LLM per --skip-llm; continuing scan/collection.")
                         continue
-                    print("\n--- Refinement Step ---")
+                    print("\n Refinement Step")
                     print("Asking Gemini to refine the explanation...")
                     try:
                         base_adv_lines = args.adv_inputs.read_text(encoding='utf-8').splitlines()
@@ -412,7 +400,7 @@ def main():
                     
                     break  # Break inner loop to start new iteration
             elif cex_input is not None:
-                # Length mismatch - likely parsed an interval or log line; skip
+                # Length mismatch
                 print(f"  Warning: parsed vector length {len(cex_input)} does not match expected {expected_input_len}; ignoring.")
             
             time.sleep(1)
@@ -429,7 +417,7 @@ def main():
             print(f"Wrote unsafe input-output pairs to: {io_path}")
 
         if args.batch_refine and collected_inputs:
-            # Write all collected input-output pairs to a file
+            # Write all collected io pairs to a file
             io_path = args.io_log_path if args.io_log_path else (args.output_dir / f"unsafe_io_pairs_iter{iteration}.txt")
             with io_path.open('w', encoding='utf-8') as f:
                 for idx, inp in enumerate(collected_inputs):
@@ -440,11 +428,11 @@ def main():
             print(f"Wrote unsafe input-output pairs to: {io_path}")
 
             if args.skip_llm:
-                print("\n--- LLM SKIPPED ---")
+                print("\n LLM SKIPPED")
                 print("Skipping LLM per --skip-llm; refined explanation will not be generated in this run.")
             else:
-                print("\n--- Refinement Step ---")
-                print("Asking Gemini to refine the explanation with all collected unsafe points...")
+                print("\n Refinement Step ")
+                print("Asking Gemini to refine the explanation with all collected unsafe points")
                 try:
                     base_adv_lines = args.adv_inputs.read_text(encoding='utf-8').splitlines()
                     refined_text = call_gemini_to_refine_bounds_batch(
@@ -463,7 +451,7 @@ def main():
                     sys.exit("Stopping loop due to LLM error.")
 
         if not counterexample_found_this_iteration:
-            print("\n--- VERIFICATION SUCCESS ---")
+            print("\nSUCCESS")
             print("No counterexamples found in any gaps. The current explanation is robust.")
             break
 

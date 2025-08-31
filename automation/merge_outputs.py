@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Merge unsafe_io_pairs_iter*.txt files and create a text file containing only the outputs.
 
@@ -68,12 +67,9 @@ def main():
         if outs:
             all_outputs.extend(outs)
         else:
-            # If file has no explicit Output lines, attempt to parse bracketed vectors guardedly
-            # but do not risk mixing Inputs; better to skip to keep 'outputs only' contract.
             pass
 
     if args.unique:
-        # Preserve order while deduplicating
         seen = set()
         deduped: List[str] = []
         for o in all_outputs:
