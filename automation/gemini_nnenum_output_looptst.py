@@ -91,6 +91,28 @@ def parse_vector_from_file_content(text: str) -> Optional[List[float]]:
     except (ValueError, IndexError):
         return None
 
+
+def parse_first_vector_with_len(text: str, expected_len: Optional[int] = None) -> Optional[List[float]]:
+    """Finds bracketed vectors in text and returns the first one matching expected_len if provided.
+    Falls back to the first successfully parsed vector if expected_len is None or no match is found.
+    """
+    matches = re.findall(r"\[([^\]]+)\]", text)
+    candidates: List[List[float]] = []
+    for grp in matches:
+        try:
+            vec = [float(p.strip()) for p in grp.split(',') if p.strip()]
+            candidates.append(vec)
+        except Exception:
+            continue
+    if not candidates:
+        return None
+    if expected_len is None:
+        return candidates[0]
+    for v in candidates:
+        if len(v) == expected_len:
+            return v
+    return None
+
 # --- Logic for Bound Difference ---
 def calculate_bound_difference(original_bound: Interval, llm_intervals: List[Interval]) -> List[Interval]:
     orig_min, orig_max = original_bound
@@ -269,6 +291,9 @@ def main():
     for var, (vmin, vmax) in sorted(original_input_bounds.items()):
         print(f"  X_{var}: [{vmin}, {vmax}]")
     print("-" * 34)
+
+    # Expected flat input length derived from number of base bounds (typically X_0..X_{n-1})
+    expected_input_len = len(original_input_bounds)
     
     current_explanation_path = args.explanation
 
@@ -312,35 +337,54 @@ def main():
             result_path = args.output_dir / f"result_iter{iteration}_rule{i+1}.txt"
             output_text = run_nnenum(repo_root, args.onnx, vnnlib_path, args.timeout, result_path)
             
-            cex_input = parse_vector_from_file_content(output_text)
+            # Prefer deterministic files written by nnenum over parsing stdout
+            cinput_path = result_path.with_suffix('.cinput')
+            coutput_path = result_path.with_suffix('.coutput')
 
-            if cex_input:
+            cex_input: Optional[List[float]] = None
+            if cinput_path.exists():
+                try:
+                    cex_input = parse_first_vector_with_len(cinput_path.read_text(encoding='utf-8'), expected_input_len)
+                except Exception as e:
+                    print(f"  Warning: failed reading cinput file {cinput_path.name}: {e}")
+            if cex_input is None:
+                # Fallback: try to parse from nnenum stdout/stderr but ensure length matches
+                cex_input = parse_first_vector_with_len(output_text, expected_input_len)
+
+            if cex_input and len(cex_input) == expected_input_len:
                 print("\n--- FLAW IN EXPLANATION FOUND ---")
                 counterexample_found_this_iteration = True
-                
-                # Call the separate inference script
-                inference_script_path = Path(__file__).parent / "model_inference.py"
-                cmd = [
-                    sys.executable,
-                    str(inference_script_path),
-                    str(args.onnx),
-                    str(cex_input)
-                ]
-                inference_result = subprocess.run(cmd, capture_output=True, text=True, check=False)
-                
-                output_line = inference_result.stdout.strip() if inference_result.stdout else ""
-                output_vector = parse_vector_from_file_content(output_line)
 
-                if inference_result.returncode != 0:
-                    print(f"  ERROR running inference script: {inference_result.stderr}", file=sys.stderr)
+                # Try to get outputs from .coutput; fallback to local inference
+                output_vector: Optional[List[float]] = None
+                if coutput_path.exists():
+                    try:
+                        output_vector = parse_vector_from_file_content(coutput_path.read_text(encoding='utf-8'))
+                    except Exception as e:
+                        print(f"  Warning: failed reading coutput file {coutput_path.name}: {e}")
+
+                if output_vector is None:
+                    # Call the separate inference script
+                    inference_script_path = Path(__file__).parent / "model_inference.py"
+                    cmd = [
+                        sys.executable,
+                        str(inference_script_path),
+                        str(args.onnx),
+                        str(cex_input)
+                    ]
+                    inference_result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+                    output_line = inference_result.stdout.strip() if inference_result.stdout else ""
+                    output_vector = parse_vector_from_file_content(output_line)
+                    if inference_result.returncode != 0:
+                        print(f"  ERROR running inference script: {inference_result.stderr}", file=sys.stderr)
 
                 print(f"  Found an UNSAFE point missed by the explanation:")
                 print(f"  Input:  " + ", ".join(f"X_{i}={v:.6f}" for i, v in enumerate(cex_input)))
-                if output_line:
-                    print(f"  {output_line}")
+                if output_vector is not None:
+                    print(f"  Output: [" + ", ".join(f"{v:.6f}" for v in output_vector) + "]")
 
                 collected_inputs.append(cex_input)
-                if output_vector:
+                if output_vector is not None:
                     collected_outputs.append(output_vector)
 
                 if not args.batch_refine:
@@ -367,6 +411,9 @@ def main():
                         sys.exit("Stopping loop due to LLM error.")
                     
                     break  # Break inner loop to start new iteration
+            elif cex_input is not None:
+                # Length mismatch - likely parsed an interval or log line; skip
+                print(f"  Warning: parsed vector length {len(cex_input)} does not match expected {expected_input_len}; ignoring.")
             
             time.sleep(1)
 
